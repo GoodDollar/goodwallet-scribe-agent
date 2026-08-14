@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -21,9 +21,46 @@ export function commitAll(repoRoot: string, message: string): string {
   return runGit(repoRoot, ["rev-parse", "HEAD"]);
 }
 
+export function createFixtureRepo(fixtureName: string): { repoRoot: string; baseRef: string; headRef: string } {
+  const repoRoot = createTempRepo();
+  writeFixtureState(repoRoot, fixtureName, "base");
+  const baseRef = commitAll(repoRoot, "base");
+  writeFixtureState(repoRoot, fixtureName, "head");
+  const headRef = commitAll(repoRoot, "head");
+  return { repoRoot, baseRef, headRef };
+}
+
+export function readFixtureText(relativePath: string): string {
+  return readFileSync(resolveFixturePath(relativePath), "utf8");
+}
+
 export function runGit(repoRoot: string, args: string[]): string {
   return execFileSync("git", args, {
     cwd: repoRoot,
     encoding: "utf8",
   }).trim();
+}
+
+function writeFixtureState(repoRoot: string, fixtureName: string, state: "base" | "head"): void {
+  clearRepoWorkingTree(repoRoot);
+  const sourceDirectory = resolveFixturePath(join(fixtureName, state));
+  if (!existsSync(sourceDirectory)) {
+    throw new Error(`Missing fixture state: ${fixtureName}/${state}`);
+  }
+
+  cpSync(sourceDirectory, repoRoot, { recursive: true });
+}
+
+function clearRepoWorkingTree(repoRoot: string): void {
+  for (const entry of readdirSync(repoRoot)) {
+    if (entry === ".git") {
+      continue;
+    }
+
+    rmSync(join(repoRoot, entry), { recursive: true, force: true });
+  }
+}
+
+function resolveFixturePath(relativePath: string): string {
+  return join(import.meta.dirname, "..", "..", "fixtures", relativePath);
 }

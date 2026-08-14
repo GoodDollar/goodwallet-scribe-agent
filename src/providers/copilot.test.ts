@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { PrimaryDocumentContext } from "../core/context.js";
+import { readFixtureText } from "../core/test-helpers.js";
 import { createCopilotCliProvider } from "./copilot.js";
 
 function createRequest(): { contexts: PrimaryDocumentContext[] } {
@@ -27,6 +28,7 @@ describe("createCopilotCliProvider", () => {
     process.env.GITHUB_TOKEN = "token-for-test";
 
     const calls: Array<{ command: string; args: string[]; prompt: string; envToken: string | undefined }> = [];
+    const validResponse = readFixtureText("provider/valid-findings.json");
     const provider = createCopilotCliProvider({
       invokeProcess: (command, args, options) => {
         calls.push({
@@ -36,21 +38,7 @@ describe("createCopilotCliProvider", () => {
           envToken: options.env.GITHUB_TOKEN,
         });
 
-        return Promise.resolve(JSON.stringify({
-          findings: [
-            {
-              category: "quality",
-              severity: "warning",
-              confidence: 0.7,
-              evidence: "Heading is vague",
-              file: "docs/guide.md",
-              line: 1,
-              explanation: "The section title is too generic.",
-              suggestion: "Use a specific heading.",
-              source: "agent",
-            },
-          ],
-        }));
+        return Promise.resolve(validResponse);
       },
     });
 
@@ -81,8 +69,9 @@ describe("createCopilotCliProvider", () => {
 
   test("retries once with a contract-invalid correction prompt that repeats the schema and validation error", async () => {
     const prompts: string[] = [];
+    const malformedResponse = readFixtureText("provider/malformed-response.txt");
     const responses = [
-      "not valid json",
+      malformedResponse,
       JSON.stringify({
         findings: [
           {
@@ -131,21 +120,7 @@ describe("createCopilotCliProvider", () => {
 
   test("retries wrong-source findings as contract-invalid responses and keeps the validation message", async () => {
     const prompts: string[] = [];
-    const badResponse = JSON.stringify({
-      findings: [
-        {
-          category: "broken-link",
-          severity: "error",
-          confidence: 1,
-          evidence: "docs/missing.md",
-          file: "docs/guide.md",
-          line: 2,
-          explanation: "This should not be accepted from the provider.",
-          suggestion: "Drop the finding.",
-          source: "deterministic",
-        },
-      ],
-    });
+    const badResponse = readFixtureText("provider/wrong-source-findings.json");
 
     const provider = createCopilotCliProvider({
       invokeProcess: (_command, args) => {
@@ -161,8 +136,9 @@ describe("createCopilotCliProvider", () => {
   });
 
   test("throws a technical error after a second contract-invalid response", async () => {
+    const malformedResponse = readFixtureText("provider/malformed-response.txt");
     const provider = createCopilotCliProvider({
-      invokeProcess: () => Promise.resolve("{ definitely not json"),
+      invokeProcess: () => Promise.resolve(malformedResponse),
     });
 
     await expect(provider.review(createRequest())).rejects.toThrow(/contract-invalid response/i);

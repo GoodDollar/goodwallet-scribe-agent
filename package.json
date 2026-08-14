@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "Advisory GitHub Action and CLI scaffold for scribe reviews.",
   "scripts": {
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest --passWithNoTests",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "build": "tsc",
+    "build": "rm -rf dist && tsc && npm run bundle && chmod +x dist/cli.js",
     "bundle": "ncc build src/action/index.ts -o dist/action",
     "check": "npm run lint && npm run typecheck && npm run test"
   },
