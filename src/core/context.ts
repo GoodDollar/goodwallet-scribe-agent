@@ -77,7 +77,7 @@ function collectPrimaryContext(primaryPath: string, params: CollectBoundedContex
       break;
     }
 
-    const nextBytes = supplementalBytes + candidate.content.length;
+    const nextBytes = supplementalBytes + Buffer.byteLength(candidate.content, "utf8");
     if (nextBytes > params.config.maxBytes) {
       continue;
     }
@@ -92,7 +92,7 @@ function collectPrimaryContext(primaryPath: string, params: CollectBoundedContex
     primaryPath,
     documents,
     totalFiles: documents.length,
-    totalBytes: documents.reduce((sum, document) => sum + document.content.length, 0),
+    totalBytes: documents.reduce((sum, document) => sum + Buffer.byteLength(document.content, "utf8"), 0),
   };
 }
 
