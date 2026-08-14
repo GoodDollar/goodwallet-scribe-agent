@@ -1,5 +1,5 @@
 name: Goodwallet Scribe
-description: Advisory CLI and GitHub Action scaffold for repository reviews.
+description: Advisory documentation review that reports findings without blocking the pull request.
 inputs:
   provider:
     description: Review provider to use for advisory output.

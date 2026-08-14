@@ -1,7 +1,7 @@
 {
   "name": "goodwallet-scribe-agent",
   "version": "1.0.0",
-  "description": "Advisory GitHub Action and CLI scaffold for scribe reviews.",
+  "description": "Advisory GitHub Action and CLI that reviews changed Markdown for documentation issues.",
   "scripts": {
     "test": "vitest run src",
     "test:watch": "vitest src",
