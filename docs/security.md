@@ -84,6 +84,8 @@ All three resolve the candidate against `repoRoot` with `node:path`'s `resolve` 
 
 Absolute link destinations are ignored by the deterministic check and fall outside `repoRoot` for context assembly, so neither path reads them.
 
+Link-like text inside fenced code blocks or matched inline code spans is never treated as a link, so no path is resolved and no git object is read for it. That matches how the document renders — such text is literal, not a link — and it keeps documentation that quotes link syntax from generating phantom findings or phantom reads.
+
 ## Escaped reports
 
 `renderMarkdownReport` / `asCode` (`src/report.ts`) wrap every finding's `evidence`, `explanation`, `suggestion`, and `source` string in a CommonMark code span rather than raw HTML. The fence is a run of backticks **one longer than the longest backtick run inside the value**, with a single space of padding when the value starts or ends with a backtick or space (which CommonMark strips again when rendering, so the value is preserved exactly). `\r\n`/`\r` are normalized to `\n` and then rendered as a literal `\n`, so a value can never introduce a real line break and break out of the span.
@@ -92,7 +94,9 @@ This matters because those strings can originate from the LLM's response, which 
 
 ## Comment size cap
 
-`upsertPullRequestComment` (`src/github.ts`) caps the comment body (marker included) at GitHub's 65,536-character limit, cutting the tail and appending an explicit truncation notice. Findings text is attacker-influenceable and therefore attacker-sizeable; without the cap, a document engineered to produce a very large report would turn into a rejected API call and a failed run. Truncation also never splits a surrogate pair, so the body stays valid UTF-8.
+`upsertPullRequestComment` (`src/github.ts`) caps the comment body (marker included) at GitHub's 65,536-character limit, dropping trailing lines and appending an explicit truncation notice. Findings text is attacker-influenceable and therefore attacker-sizeable; without the cap, a document engineered to produce a very large report would turn into a rejected API call and a failed run.
+
+The cut is aligned to **complete line boundaries**, which is what makes the cap safe rather than just polite. Every finding value is rendered as a one-line code span, so slicing at an arbitrary character offset could remove a span's closing fence and let the attacker-influenced text that preceded the cut — an image, a link, an HTML comment — render as live Markdown in the comment. Cutting only between lines keeps every retained span balanced, and a line that does not fit whole is omitted entirely rather than sliced. Because the marker, the header, and the notice are all short, they always survive, so sticky-comment matching keeps working on a truncated comment. Truncating between lines also cannot split a surrogate pair, so the body stays valid UTF-8. `src/github.test.ts` covers this with a rendered report of attacker-controlled image/HTML/backtick payloads sized so the limit falls inside a code-span line, asserting the posted body is a whole-line prefix of the untruncated body with every span balanced.
 
 ## Trigger and token guidance
 

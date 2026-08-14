@@ -57,6 +57,42 @@ describe("extractMarkdownLinks", () => {
     ]);
   });
 
+  test("ignores links inside matched inline code spans", () => {
+    const links = extractMarkdownLinks(
+      [
+        "`[in span](docs/span.md)` and [real](docs/real.md)",
+        "``[wide span](docs/wide.md)`` then [also real](docs/also.md)",
+        "`[first](docs/first.md)` middle `[second](docs/second.md)` tail [third](docs/third.md)",
+        "See [`docs/security.md`](docs/security.md) for detail",
+      ].join("\n"),
+    );
+
+    expect(links).toEqual([
+      { destination: "docs/real.md", line: 1 },
+      { destination: "docs/also.md", line: 2 },
+      { destination: "docs/third.md", line: 3 },
+      { destination: "docs/security.md", line: 4 },
+    ]);
+  });
+
+  test("treats unmatched backtick runs as literal text that does not suppress later links", () => {
+    const links = extractMarkdownLinks(
+      [
+        "` unmatched run then [still a link](docs/one.md)",
+        "``mismatched` closer [also a link](docs/two.md)",
+        "escaped \\` backtick [link](docs/three.md)",
+        "`closed` then unmatched ` and [link](docs/four.md)",
+      ].join("\n"),
+    );
+
+    expect(links).toEqual([
+      { destination: "docs/one.md", line: 1 },
+      { destination: "docs/two.md", line: 2 },
+      { destination: "docs/three.md", line: 3 },
+      { destination: "docs/four.md", line: 4 },
+    ]);
+  });
+
   test("skips malformed links and empty destinations", () => {
     expect(extractMarkdownLinks(["[no destination]", "[empty]()", "[ok](docs/ok.md)"].join("\n"))).toEqual([
       { destination: "docs/ok.md", line: 3 },

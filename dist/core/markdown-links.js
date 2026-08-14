@@ -59,8 +59,9 @@ function isBlankAfterFence(line, fence) {
     return line.slice(line.indexOf(fence) + fence.length).trim().length === 0;
 }
 function collectLineLinks(line, lineNumber, links) {
+    const codeSpans = findCodeSpans(line);
     for (let index = 0; index < line.length; index += 1) {
-        if (line[index] !== "[" || isEscaped(line, index)) {
+        if (line[index] !== "[" || isEscaped(line, index) || isInsideCodeSpan(codeSpans, index)) {
             continue;
         }
         const labelEnd = findLabelEnd(line, index + 1);
@@ -76,10 +77,57 @@ function collectLineLinks(line, lineNumber, links) {
             continue;
         }
         index = inlineLink.endIndex;
-        if (inlineLink.destination.length > 0) {
+        if (inlineLink.destination.length > 0 && !isInsideCodeSpan(codeSpans, inlineLink.endIndex)) {
             links.push({ destination: inlineLink.destination, line: lineNumber });
         }
     }
+}
+/**
+ * Locates matched inline code spans on a line. A backtick run opens a span that only the next
+ * run of exactly the same length closes; an unmatched run stays literal Markdown, so links after
+ * it are still real links.
+ */
+function findCodeSpans(line) {
+    const spans = [];
+    for (let index = 0; index < line.length;) {
+        if (line[index] !== "`" || isEscaped(line, index)) {
+            index += 1;
+            continue;
+        }
+        const openLength = measureBacktickRun(line, index);
+        const closeStart = findClosingBacktickRun(line, index + openLength, openLength);
+        if (closeStart === undefined) {
+            index += openLength;
+            continue;
+        }
+        spans.push({ start: index, end: closeStart + openLength - 1 });
+        index = closeStart + openLength;
+    }
+    return spans;
+}
+function findClosingBacktickRun(line, start, length) {
+    for (let index = start; index < line.length;) {
+        if (line[index] !== "`") {
+            index += 1;
+            continue;
+        }
+        const runLength = measureBacktickRun(line, index);
+        if (runLength === length) {
+            return index;
+        }
+        index += runLength;
+    }
+    return undefined;
+}
+function measureBacktickRun(line, start) {
+    let length = 0;
+    while (line[start + length] === "`") {
+        length += 1;
+    }
+    return length;
+}
+function isInsideCodeSpan(spans, index) {
+    return spans.some((span) => index >= span.start && index <= span.end);
 }
 function findLabelEnd(line, start) {
     for (let index = start; index < line.length; index += 1) {

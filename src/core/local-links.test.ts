@@ -108,6 +108,35 @@ describe("checkLocalLinks", () => {
     expect(findings[0]).toMatchObject({ category: "broken-link", file: "docs/guide.md", line: 1 });
   });
 
+  test("does not check link syntax shown inside inline code spans", () => {
+    const repoRoot = createTempRepo();
+    writeRepoFile(repoRoot, "docs/security.md", "security\n");
+    const headRef = commitAll(repoRoot, "base");
+
+    const findings = checkLocalLinks({
+      repoRoot,
+      headRef,
+      documents: [
+        {
+          path: "README.md",
+          content: [
+            "See [`docs/security.md`](docs/security.md) for the threat model.",
+            "Write `[label](docs/example-target.md)` to add a relative link.",
+            "A wider fence also hides ``[label](docs/wide-example.md)`` from the checker.",
+            "Both `[one](docs/a.md)` and `[two](docs/b.md)` are documentation, not links.",
+            "But [this one](docs/really-missing.md) is a real link.",
+            "` unmatched run leaves [this real link](docs/also-missing.md) alone.",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(findings.map((finding) => ({ evidence: finding.evidence, line: finding.line }))).toEqual([
+      { evidence: "docs/really-missing.md", line: 5 },
+      { evidence: "docs/also-missing.md", line: 6 },
+    ]);
+  });
+
   test("understands titles, bracketed and percent-encoded targets, and fenced code", () => {
     const repoRoot = createTempRepo();
     writeRepoFile(repoRoot, "docs/with space.md", "spaced\n");

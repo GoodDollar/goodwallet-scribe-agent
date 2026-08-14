@@ -48,15 +48,27 @@ export async function upsertPullRequestComment(params) {
         throw error;
     }
 }
-/** Keeps the comment within GitHub's body limit, replacing the dropped tail with a visible notice. */
+/**
+ * Keeps the comment within GitHub's body limit, replacing the dropped tail with a visible notice.
+ *
+ * Truncation happens only at complete line boundaries. The report renders each finding value as a
+ * one-line code span, so cutting mid-line could leave an unbalanced span and let attacker-influenced
+ * text escape into Markdown; a line that does not fit whole is dropped entirely instead of sliced.
+ */
 function capCommentBody(body) {
     if (body.length <= MAX_COMMENT_BODY_LENGTH) {
         return body;
     }
-    const keptLength = MAX_COMMENT_BODY_LENGTH - TRUNCATION_NOTICE.length;
-    const kept = body.slice(0, keptLength);
-    const withoutSplitSurrogate = /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
-    return withoutSplitSurrogate + TRUNCATION_NOTICE;
+    const budget = MAX_COMMENT_BODY_LENGTH - TRUNCATION_NOTICE.length;
+    let kept = "";
+    for (const line of body.split("\n")) {
+        const candidate = kept.length === 0 ? line : `${kept}\n${line}`;
+        if (candidate.length > budget) {
+            break;
+        }
+        kept = candidate;
+    }
+    return kept + TRUNCATION_NOTICE;
 }
 async function findExistingMarkerComment(params) {
     for (let page = 1;; page += 1) {

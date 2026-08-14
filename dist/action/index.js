@@ -45565,15 +45565,27 @@ async function upsertPullRequestComment(params) {
         throw error;
     }
 }
-/** Keeps the comment within GitHub's body limit, replacing the dropped tail with a visible notice. */
+/**
+ * Keeps the comment within GitHub's body limit, replacing the dropped tail with a visible notice.
+ *
+ * Truncation happens only at complete line boundaries. The report renders each finding value as a
+ * one-line code span, so cutting mid-line could leave an unbalanced span and let attacker-influenced
+ * text escape into Markdown; a line that does not fit whole is dropped entirely instead of sliced.
+ */
 function capCommentBody(body) {
     if (body.length <= MAX_COMMENT_BODY_LENGTH) {
         return body;
     }
-    const keptLength = MAX_COMMENT_BODY_LENGTH - TRUNCATION_NOTICE.length;
-    const kept = body.slice(0, keptLength);
-    const withoutSplitSurrogate = /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
-    return withoutSplitSurrogate + TRUNCATION_NOTICE;
+    const budget = MAX_COMMENT_BODY_LENGTH - TRUNCATION_NOTICE.length;
+    let kept = "";
+    for (const line of body.split("\n")) {
+        const candidate = kept.length === 0 ? line : `${kept}\n${line}`;
+        if (candidate.length > budget) {
+            break;
+        }
+        kept = candidate;
+    }
+    return kept + TRUNCATION_NOTICE;
 }
 async function findExistingMarkerComment(params) {
     for (let page = 1;; page += 1) {
@@ -56044,8 +56056,9 @@ function isBlankAfterFence(line, fence) {
     return line.slice(line.indexOf(fence) + fence.length).trim().length === 0;
 }
 function collectLineLinks(line, lineNumber, links) {
+    const codeSpans = findCodeSpans(line);
     for (let index = 0; index < line.length; index += 1) {
-        if (line[index] !== "[" || isEscaped(line, index)) {
+        if (line[index] !== "[" || isEscaped(line, index) || isInsideCodeSpan(codeSpans, index)) {
             continue;
         }
         const labelEnd = findLabelEnd(line, index + 1);
@@ -56061,10 +56074,57 @@ function collectLineLinks(line, lineNumber, links) {
             continue;
         }
         index = inlineLink.endIndex;
-        if (inlineLink.destination.length > 0) {
+        if (inlineLink.destination.length > 0 && !isInsideCodeSpan(codeSpans, inlineLink.endIndex)) {
             links.push({ destination: inlineLink.destination, line: lineNumber });
         }
     }
+}
+/**
+ * Locates matched inline code spans on a line. A backtick run opens a span that only the next
+ * run of exactly the same length closes; an unmatched run stays literal Markdown, so links after
+ * it are still real links.
+ */
+function findCodeSpans(line) {
+    const spans = [];
+    for (let index = 0; index < line.length;) {
+        if (line[index] !== "`" || isEscaped(line, index)) {
+            index += 1;
+            continue;
+        }
+        const openLength = measureBacktickRun(line, index);
+        const closeStart = findClosingBacktickRun(line, index + openLength, openLength);
+        if (closeStart === undefined) {
+            index += openLength;
+            continue;
+        }
+        spans.push({ start: index, end: closeStart + openLength - 1 });
+        index = closeStart + openLength;
+    }
+    return spans;
+}
+function findClosingBacktickRun(line, start, length) {
+    for (let index = start; index < line.length;) {
+        if (line[index] !== "`") {
+            index += 1;
+            continue;
+        }
+        const runLength = measureBacktickRun(line, index);
+        if (runLength === length) {
+            return index;
+        }
+        index += runLength;
+    }
+    return undefined;
+}
+function measureBacktickRun(line, start) {
+    let length = 0;
+    while (line[start + length] === "`") {
+        length += 1;
+    }
+    return length;
+}
+function isInsideCodeSpan(spans, index) {
+    return spans.some((span) => index >= span.start && index <= span.end);
 }
 function findLabelEnd(line, start) {
     for (let index = start; index < line.length; index += 1) {
