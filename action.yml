@@ -1,0 +1,24 @@
+name: Goodwallet Scribe
+description: Advisory CLI and GitHub Action scaffold for repository reviews.
+inputs:
+  provider:
+    description: Review provider to use for advisory output.
+    required: false
+    default: copilot
+  config:
+    description: Path to the scribe configuration file.
+    required: false
+    default: .scribe.yml
+  base:
+    description: Optional base ref for comparison.
+    required: false
+  head:
+    description: Optional head ref for comparison.
+    required: false
+  github-token:
+    description: Token used for GitHub API access.
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: node24
+  main: dist/action/index.js
