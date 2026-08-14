@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "category": "quality",
+      "severity": "warning",
+      "confidence": 0.7,
+      "evidence": "Heading is vague",
+      "file": "docs/guide.md",
+      "line": 1,
+      "explanation": "The section title is too generic.",
+      "suggestion": "Use a specific heading.",
+      "source": "agent"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "category": "broken-link",
+      "severity": "error",
+      "confidence": 1,
+      "evidence": "docs/missing.md",
+      "file": "docs/guide.md",
+      "line": 2,
+      "explanation": "This should not be accepted from the provider.",
+      "suggestion": "Drop the finding.",
+      "source": "deterministic"
+    }
+  ]
+}

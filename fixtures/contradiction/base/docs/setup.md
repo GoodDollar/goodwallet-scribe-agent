@@ -1,0 +1,2 @@
+# Setup
+Use OAuth only.

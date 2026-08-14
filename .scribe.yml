@@ -1,0 +1,14 @@
+include:
+  - "**/*.md"
+exclude:
+  - "node_modules/**"
+  - "dist/**"
+  - "vendor/**"
+  - "coverage/**"
+  - ".git/**"
+maxFiles: 30
+maxBytes: 200000
+provider: copilot
+report:
+  summary: true
+  comment: true

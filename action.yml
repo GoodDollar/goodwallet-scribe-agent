@@ -1,0 +1,23 @@
+name: GoodWallet Scribe
+description: Advisory documentation review that reports findings without blocking the pull request.
+inputs:
+  provider:
+    description: Optional review provider override. When unset, the provider configured in .scribe.yml (default "copilot") is used.
+    required: false
+  config:
+    description: Path to the scribe configuration file.
+    required: false
+    default: .scribe.yml
+  base:
+    description: Optional base ref for comparison.
+    required: false
+  head:
+    description: Optional head ref for comparison.
+    required: false
+  github-token:
+    description: Token used for GitHub API access.
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: node24
+  main: dist/action/index.js

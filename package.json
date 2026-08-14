@@ -1,0 +1,43 @@
+{
+  "name": "goodwallet-scribe-agent",
+  "version": "1.0.0",
+  "description": "Advisory GitHub Action and CLI that reviews changed Markdown for documentation issues.",
+  "scripts": {
+    "test": "vitest run src",
+    "test:watch": "vitest src",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "build": "node ./scripts/build.mjs",
+    "bundle": "ncc build src/action/index.ts -o dist/action",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/exec": "^3.0.0",
+    "@actions/github": "^9.1.1",
+    "minimatch": "^10.2.6",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "@vercel/ncc": "^0.45.0",
+    "eslint": "^10.8.1",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  },
+  "private": true,
+  "bin": {
+    "scribe": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
