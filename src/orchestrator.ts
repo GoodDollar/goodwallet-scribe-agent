@@ -2,6 +2,7 @@ import { loadConfig, type ScribeConfig } from "./core/config.js";
 import { collectBoundedContexts, type PrimaryDocumentContext } from "./core/context.js";
 import type { Finding } from "./core/findings.js";
 import { discoverGitChanges, selectPrimaryDocuments, type GitChange } from "./core/git-changes.js";
+import { readGitTextFile } from "./core/git-text.js";
 import { checkLocalLinks, type MarkdownDocument } from "./core/local-links.js";
 import { createCopilotCliProvider } from "./providers/copilot.js";
 import type { Provider } from "./providers/index.js";
@@ -42,7 +43,10 @@ export async function runScribeReview(options: RunScribeReviewOptions): Promise<
     allChanges: changes,
     config,
   });
-  const deterministicFindings = checkLocalLinks(options.repoRoot, collectPrimaryHeadDocuments(contexts));
+  const deterministicFindings = checkLocalLinks(
+    options.repoRoot,
+    readPrimaryHeadDocuments(options.repoRoot, options.headRef, primaryDocuments),
+  );
 
   if (primaryDocuments.length === 0) {
     return {
@@ -77,27 +81,25 @@ function resolveProvider(
   providers: Record<string, Provider> | undefined,
   repoRoot: string,
 ): Provider {
-  const availableProviders: Record<string, Provider> = {
-    copilot: createCopilotCliProvider({ cwd: repoRoot }),
-    ...providers,
-  };
-  const provider = availableProviders[providerName];
-
-  if (!provider) {
-    throw new Error(`Unsupported provider: ${providerName}`);
+  const configuredProvider = providers?.[providerName];
+  if (configuredProvider) {
+    return configuredProvider;
   }
 
-  return provider;
+  if (providerName === "copilot") {
+    return createCopilotCliProvider({ cwd: repoRoot });
+  }
+
+  throw new Error(`Unsupported provider: ${providerName}`);
 }
 
-function collectPrimaryHeadDocuments(contexts: PrimaryDocumentContext[]): MarkdownDocument[] {
+function readPrimaryHeadDocuments(repoRoot: string, headRef: string, primaryDocuments: GitChange[]): MarkdownDocument[] {
   const documents: MarkdownDocument[] = [];
 
-  for (const context of contexts) {
-    for (const document of context.documents) {
-      if (document.kind === "primary-head") {
-        documents.push({ path: document.path, content: document.content });
-      }
+  for (const primaryDocument of primaryDocuments) {
+    const content = readGitTextFile(repoRoot, headRef, primaryDocument.path);
+    if (content !== undefined) {
+      documents.push({ path: primaryDocument.path, content });
     }
   }
 

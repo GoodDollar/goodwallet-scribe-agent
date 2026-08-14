@@ -90,6 +90,43 @@ describe("runScribeReview", () => {
     expect(result.primaryDocuments).toEqual([]);
   });
 
+  test("still reports broken links from head markdown when context budgets exclude the file", async () => {
+    const repoRoot = createTempRepo();
+    writeRepoFile(repoRoot, ".scribe.yml", ["maxFiles: 1", "maxBytes: 5", ""].join("\n"));
+    writeRepoFile(repoRoot, "docs/guide.md", "base\n");
+    const baseRef = commitAll(repoRoot, "base");
+
+    writeRepoFile(repoRoot, "docs/guide.md", "# Oversized\n[missing](../missing.md)\n" + "x".repeat(200));
+    const headRef = commitAll(repoRoot, "head");
+
+    const result = await runScribeReview({
+      repoRoot,
+      baseRef,
+      headRef,
+      providers: {
+        copilot: {
+          review: () => Promise.resolve([]),
+        },
+      },
+    });
+
+    expect(result.contexts).toHaveLength(1);
+    expect(result.contexts[0]?.documents.some((document) => document.kind === "primary-head")).toBe(false);
+    expect(result.deterministicFindings).toEqual([
+      {
+        category: "broken-link",
+        severity: "error",
+        confidence: 1,
+        evidence: "../missing.md",
+        file: "docs/guide.md",
+        line: 2,
+        explanation: "The relative link target does not exist in the repository.",
+        suggestion: "Create the file or update the link target.",
+        source: "deterministic",
+      },
+    ]);
+  });
+
   test("fails clearly for unsupported providers", async () => {
     const repoRoot = createTempRepo();
     writeRepoFile(repoRoot, ".scribe.yml", "provider: mystery\n");

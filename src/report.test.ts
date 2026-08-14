@@ -8,11 +8,11 @@ const findings: Finding[] = [
     category: "broken-link",
     severity: "error",
     confidence: 1,
-    evidence: "docs/missing.md\n# injected heading",
+    evidence: "docs/`missing`.md\r\n![pwn](x) <!-- injected -->",
     file: "docs/guide.md",
     line: 4,
-    explanation: "Broken <!-- comment --> link",
-    suggestion: "Point to <docs/fixed.md>",
+    explanation: "Broken <!-- comment --> \"quote\" and 'apostrophe' link",
+    suggestion: "Point to <docs/fixed.md> and avoid [`inline`](javascript:alert(1))",
     source: "deterministic",
   },
   {
@@ -38,18 +38,19 @@ describe("renderMarkdownReport", () => {
     expect(report).toContain("Warnings: 1");
     expect(report).toContain("Info: 0");
     expect(report).toContain("## 1. error broken-link");
-    expect(report).toContain("Location: `docs/guide.md:4`");
-    expect(report).toContain("Evidence: `docs/missing.md\\n# injected heading`");
-    expect(report).toContain("Suggestion: `Point to &lt;docs/fixed.md&gt;`");
-    expect(report).toContain("Source: `agent`");
+    expect(report).toContain("Location: <code>docs/guide.md:4</code>");
+    expect(report).toContain("Source: <code>agent</code>");
   });
 
-  test("escapes untrusted content so it cannot inject markdown structure or html", () => {
+  test("escapes backticks markdown html and CRLF inside code wrappers", () => {
     const report = renderMarkdownReport(findings);
 
-    expect(report).not.toContain("<!-- comment -->");
-    expect(report).not.toContain("\n# injected heading\n");
-    expect(report).toContain("&lt;!-- comment --&gt;");
+    expect(report).toContain("Evidence: <code>docs/`missing`.md\\n![pwn](x) &lt;!-- injected --&gt;</code>");
+    expect(report).toContain("Explanation: <code>Broken &lt;!-- comment --&gt; &quot;quote&quot; and &#39;apostrophe&#39; link</code>");
+    expect(report).toContain("Suggestion: <code>Point to &lt;docs/fixed.md&gt; and avoid [`inline`](javascript:alert(1))</code>");
+    expect(report).not.toContain("\r");
+    expect(report).not.toContain("<!-- injected -->");
+    expect(report).not.toContain("\n![pwn](x)\n");
   });
 
   test("renders a stable no-findings report", () => {

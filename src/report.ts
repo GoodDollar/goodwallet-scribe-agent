@@ -42,15 +42,19 @@ function countBySeverity(findings: Finding[]): Record<Finding["severity"], numbe
 }
 
 function asCode(value: string): string {
-  return "`" + escapeInline(value) + "`";
+  return "<code>" + escapeCodeContent(value) + "</code>";
 }
 
-function escapeInline(value: string): string {
-  return value
+function escapeCodeContent(value: string): string {
+  return normalizeLineEndings(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll("`", "\\`")
-    .replaceAll("\r", "")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
     .replaceAll("\n", "\\n");
+}
+
+function normalizeLineEndings(value: string): string {
+  return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }

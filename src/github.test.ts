@@ -36,7 +36,59 @@ describe("writeJobSummary", () => {
 });
 
 describe("upsertPullRequestComment", () => {
-  test("updates the existing bot marker comment instead of creating a duplicate", async () => {
+  test("updates a marker comment found on a later comments page", async () => {
+    const pages: number[] = [];
+    const events: string[] = [];
+    const github: PullRequestCommentClient = {
+      rest: {
+        issues: {
+          ...createBaseClient().rest.issues,
+          listComments: ({ page, per_page }) => {
+            pages.push(page);
+            expect(per_page).toBe(100);
+            if (page === 1) {
+              return Promise.resolve({
+                data: Array.from({ length: 100 }, (_, index) => ({ id: index + 1, body: "comment " + String(index + 1) })),
+              });
+            }
+
+            if (page === 2) {
+              return Promise.resolve({
+                data: [
+                  { id: 201, body: "<!-- goodwallet-scribe-agent -->\nold", user: { type: "User" } },
+                ],
+              });
+            }
+
+            return Promise.resolve({ data: [] });
+          },
+          updateComment: ({ body }) => {
+            events.push(body);
+            return Promise.resolve({ data: { html_url: "https://example.com/comment/201" } });
+          },
+          createComment: () => Promise.reject(new Error("should not create")),
+        },
+      },
+    };
+
+    const result = await upsertPullRequestComment({
+      github,
+      owner: "goodwallet",
+      repo: "scribe",
+      issueNumber: 3,
+      body: "fresh report",
+    });
+
+    expect(pages).toEqual([1, 2]);
+    expect(events).toHaveLength(1);
+    expect(result).toEqual({
+      mode: "comment",
+      warning: undefined,
+      url: "https://example.com/comment/201",
+    });
+  });
+
+  test("updates an existing marker comment regardless of user type", async () => {
     const events: string[] = [];
     const github: PullRequestCommentClient = {
       rest: {
@@ -44,7 +96,7 @@ describe("upsertPullRequestComment", () => {
           ...createBaseClient().rest.issues,
           listComments: () => Promise.resolve({
             data: [
-              { id: 7, body: "<!-- goodwallet-scribe-agent -->\nold", user: { type: "Bot" } },
+              { id: 7, body: "<!-- goodwallet-scribe-agent -->\nold" },
             ],
           }),
           updateComment: ({ body }) => {

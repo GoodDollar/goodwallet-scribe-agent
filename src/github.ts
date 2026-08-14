@@ -1,6 +1,7 @@
 import { summary } from "@actions/core";
 
 const COMMENT_MARKER = "<!-- goodwallet-scribe-agent -->";
+const COMMENTS_PAGE_SIZE = 100;
 
 export interface SummaryWriter {
   addRaw(markdown: string): SummaryWriter;
@@ -14,6 +15,8 @@ export interface PullRequestCommentClient {
         owner: string;
         repo: string;
         issue_number: number;
+        per_page: number;
+        page: number;
       }): Promise<{
         data: Array<{
           id: number;
@@ -64,14 +67,7 @@ export async function upsertPullRequestComment(
   const commentBody = `${COMMENT_MARKER}\n${params.body}`;
 
   try {
-    const existingComments = await params.github.rest.issues.listComments({
-      owner: params.owner,
-      repo: params.repo,
-      issue_number: params.issueNumber,
-    });
-    const existingComment = existingComments.data.find(
-      (comment) => comment.user?.type === "Bot" && comment.body?.includes(COMMENT_MARKER),
-    );
+    const existingComment = await findExistingMarkerComment(params);
 
     if (existingComment) {
       const response = await params.github.rest.issues.updateComment({
@@ -111,6 +107,29 @@ export async function upsertPullRequestComment(
     }
 
     throw error;
+  }
+}
+
+async function findExistingMarkerComment(
+  params: UpsertPullRequestCommentParams,
+): Promise<{ id: number } | undefined> {
+  for (let page = 1; ; page += 1) {
+    const response = await params.github.rest.issues.listComments({
+      owner: params.owner,
+      repo: params.repo,
+      issue_number: params.issueNumber,
+      per_page: COMMENTS_PAGE_SIZE,
+      page,
+    });
+    const existingComment = response.data.find((comment) => comment.body?.includes(COMMENT_MARKER));
+
+    if (existingComment) {
+      return { id: existingComment.id };
+    }
+
+    if (response.data.length < COMMENTS_PAGE_SIZE) {
+      return undefined;
+    }
   }
 }
 
