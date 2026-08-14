@@ -1,0 +1,262 @@
+export interface MarkdownLinkReference {
+  /** Link destination with an optional title removed and `<...>` wrapping unwrapped. */
+  destination: string;
+  /** One-based line number of the line the link was found on. */
+  line: number;
+}
+
+const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Extracts inline Markdown link destinations, ignoring anything inside fenced code blocks.
+ * Links are matched per line, so a destination split across lines is not treated as a link.
+ */
+export function extractMarkdownLinks(content: string): MarkdownLinkReference[] {
+  const links: MarkdownLinkReference[] = [];
+  let openFence: string | undefined;
+
+  for (const [index, line] of content.split(/\r?\n/).entries()) {
+    const fence = FENCE_PATTERN.exec(line)?.[1];
+
+    if (openFence) {
+      if (fence && fence[0] === openFence[0] && fence.length >= openFence.length && isBlankAfterFence(line, fence)) {
+        openFence = undefined;
+      }
+
+      continue;
+    }
+
+    if (fence) {
+      openFence = fence;
+      continue;
+    }
+
+    collectLineLinks(line, index + 1, links);
+  }
+
+  return links;
+}
+
+/**
+ * Converts a link destination into a repository-relative path candidate, or `undefined`
+ * when the destination is not a local path reference.
+ */
+export function toLocalLinkPath(destination: string): string | undefined {
+  const target = destination.trim();
+
+  if (target.length === 0 || isIgnoredLinkTarget(target)) {
+    return undefined;
+  }
+
+  const withoutFragment = target.split("#", 1)[0] ?? target;
+  const decoded = percentDecode(withoutFragment);
+
+  if (decoded.length === 0 || decoded.includes("\0")) {
+    return undefined;
+  }
+
+  return decoded;
+}
+
+function isIgnoredLinkTarget(target: string): boolean {
+  return (
+    target.startsWith("#")
+    || target.startsWith("http://")
+    || target.startsWith("https://")
+    || target.startsWith("mailto:")
+  );
+}
+
+function percentDecode(value: string): string {
+  if (!value.includes("%")) {
+    return value;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isBlankAfterFence(line: string, fence: string): boolean {
+  return line.slice(line.indexOf(fence) + fence.length).trim().length === 0;
+}
+
+function collectLineLinks(line: string, lineNumber: number, links: MarkdownLinkReference[]): void {
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] !== "[" || isEscaped(line, index)) {
+      continue;
+    }
+
+    const labelEnd = findLabelEnd(line, index + 1);
+    if (labelEnd === undefined) {
+      continue;
+    }
+
+    index = labelEnd;
+    if (line[labelEnd + 1] !== "(") {
+      continue;
+    }
+
+    const inlineLink = parseInlineDestination(line, labelEnd + 2);
+    if (!inlineLink) {
+      continue;
+    }
+
+    index = inlineLink.endIndex;
+    if (inlineLink.destination.length > 0) {
+      links.push({ destination: inlineLink.destination, line: lineNumber });
+    }
+  }
+}
+
+function findLabelEnd(line: string, start: number): number | undefined {
+  for (let index = start; index < line.length; index += 1) {
+    if (line[index] === "]" && !isEscaped(line, index)) {
+      return index === start ? undefined : index;
+    }
+  }
+
+  return undefined;
+}
+
+function parseInlineDestination(
+  line: string,
+  start: number,
+): { destination: string; endIndex: number } | undefined {
+  let index = skipWhitespace(line, start);
+  let destination: string;
+
+  if (line[index] === "<") {
+    const bracketed = readBracketedDestination(line, index + 1);
+    if (!bracketed) {
+      return undefined;
+    }
+
+    destination = bracketed.destination;
+    index = bracketed.endIndex;
+  } else {
+    const bare = readBareDestination(line, index);
+    destination = bare.destination;
+    index = bare.endIndex;
+  }
+
+  index = skipWhitespace(line, index);
+  const titleEnd = skipTitle(line, index);
+  if (titleEnd === undefined) {
+    return undefined;
+  }
+
+  index = skipWhitespace(line, titleEnd);
+  if (line[index] !== ")") {
+    return undefined;
+  }
+
+  return { destination, endIndex: index };
+}
+
+function readBracketedDestination(
+  line: string,
+  start: number,
+): { destination: string; endIndex: number } | undefined {
+  let destination = "";
+
+  for (let index = start; index < line.length; index += 1) {
+    const character = line[index];
+    const next = line[index + 1];
+
+    if (character === "\\" && isPunctuation(next)) {
+      destination += next;
+      index += 1;
+      continue;
+    }
+
+    if (character === ">") {
+      return { destination, endIndex: index + 1 };
+    }
+
+    destination += character ?? "";
+  }
+
+  return undefined;
+}
+
+function readBareDestination(line: string, start: number): { destination: string; endIndex: number } {
+  let destination = "";
+  let depth = 0;
+
+  for (let index = start; index < line.length; index += 1) {
+    const character = line[index];
+    const next = line[index + 1];
+
+    if (character === "\\" && isPunctuation(next)) {
+      destination += next;
+      index += 1;
+      continue;
+    }
+
+    if (character === undefined || character === " " || character === "\t") {
+      return { destination, endIndex: index };
+    }
+
+    if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      if (depth === 0) {
+        return { destination, endIndex: index };
+      }
+
+      depth -= 1;
+    }
+
+    destination += character;
+  }
+
+  return { destination, endIndex: line.length };
+}
+
+/** Returns the index just past an optional link title, or `undefined` for an unterminated title. */
+function skipTitle(line: string, start: number): number | undefined {
+  const opener = line[start];
+  if (opener !== '"' && opener !== "'" && opener !== "(") {
+    return start;
+  }
+
+  const closer = opener === "(" ? ")" : opener;
+
+  for (let index = start + 1; index < line.length; index += 1) {
+    if (line[index] === "\\" && isPunctuation(line[index + 1])) {
+      index += 1;
+      continue;
+    }
+
+    if (line[index] === closer) {
+      return index + 1;
+    }
+  }
+
+  return undefined;
+}
+
+function skipWhitespace(line: string, start: number): number {
+  let index = start;
+  while (line[index] === " " || line[index] === "\t") {
+    index += 1;
+  }
+
+  return index;
+}
+
+function isEscaped(line: string, index: number): boolean {
+  let backslashes = 0;
+  for (let current = index - 1; current >= 0 && line[current] === "\\"; current -= 1) {
+    backslashes += 1;
+  }
+
+  return backslashes % 2 === 1;
+}
+
+function isPunctuation(character: string | undefined): character is string {
+  return character !== undefined && /[\p{P}\p{S}]/u.test(character);
+}

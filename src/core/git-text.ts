@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { normalize, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
+
+import { toRepoPath } from "./repo-paths.js";
 
 export function readGitTextFile(repoRoot: string, ref: string, path: string): string | undefined {
   const repoPath = toRepoPath(path);
@@ -16,6 +18,25 @@ export function readGitTextFile(repoRoot: string, ref: string, path: string): st
   }
 }
 
+/**
+ * Reports whether a repository-relative path exists as a blob or tree at `ref`,
+ * independently of what is currently checked out on disk.
+ */
+export function gitPathExists(repoRoot: string, ref: string, path: string): boolean {
+  const repoPath = toRepoPath(path);
+  const objectName = repoPath === "" || repoPath === "." ? `${ref}^{tree}` : `${ref}:${repoPath}`;
+
+  try {
+    execFileSync("git", ["cat-file", "-e", objectName], {
+      cwd: repoRoot,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function ensureRepoPath(repoRoot: string, path: string): void {
   const resolved = resolve(repoRoot, path);
   const relativePath = relative(repoRoot, resolved);
@@ -23,8 +44,4 @@ function ensureRepoPath(repoRoot: string, path: string): void {
   if (relativePath.startsWith("..") || relativePath === "") {
     throw new Error(`Path resolves outside the repository: ${path}`);
   }
-}
-
-function toRepoPath(path: string): string {
-  return normalize(path).replaceAll("\\", "/").replace(/^\.\//, "");
 }

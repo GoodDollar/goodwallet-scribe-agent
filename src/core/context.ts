@@ -1,12 +1,12 @@
-import { execFileSync } from "node:child_process";
-import { dirname, join, normalize, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { minimatch } from "minimatch";
 
 import type { ScribeConfig } from "./config.js";
 import type { GitChange } from "./git-changes.js";
-
-const LINK_PATTERN = /\[[^\]]+\]\(([^)]+)\)/g;
+import { readGitTextFile } from "./git-text.js";
+import { extractMarkdownLinks, toLocalLinkPath } from "./markdown-links.js";
+import { isSecretPath, toRepoPath } from "./repo-paths.js";
 
 export type ContextDocumentKind =
   | "primary-base"
@@ -45,8 +45,8 @@ export function collectBoundedContexts(params: CollectBoundedContextsParams): Pr
 function collectPrimaryContext(primaryDocument: GitChange, params: CollectBoundedContextsParams): PrimaryDocumentContext {
   const primaryPath = primaryDocument.path;
   const basePath = primaryDocument.oldPath ?? primaryDocument.path;
-  const baseContent = readGitFile(params.repoRoot, params.baseRef, basePath);
-  const headContent = readGitFile(params.repoRoot, params.headRef, primaryPath);
+  const baseContent = readGitTextFile(params.repoRoot, params.baseRef, basePath);
+  const headContent = readGitTextFile(params.repoRoot, params.headRef, primaryPath);
 
   let totalFiles = 0;
   let totalBytes = 0;
@@ -86,7 +86,7 @@ function collectPrimaryContext(primaryDocument: GitChange, params: CollectBounde
     ...getChangedMarkdownCandidates(primaryPath, params),
     ...getChangedFileCandidates(primaryPath, params),
     ...getLinkedMarkdownCandidates(primaryPath, [baseContent, headContent], params),
-    ...getNearbyMarkdownCandidates(primaryPath, params),
+    ...getNearbyMarkdownCandidates(primaryPath, seenPaths, params),
   ];
 
   for (const candidate of candidates) {
@@ -173,19 +173,17 @@ function getLinkedMarkdownCandidates(
       continue;
     }
 
-    for (const line of currentContent.split(/\r?\n/)) {
-    for (const match of line.matchAll(LINK_PATTERN)) {
-      const target = match[1]?.trim();
-      if (!target || shouldIgnoreLinkTarget(target)) {
+    for (const link of extractMarkdownLinks(currentContent)) {
+      const targetPath = toLocalLinkPath(link.destination);
+      if (!targetPath || !isMarkdown(targetPath)) {
         continue;
       }
 
-      const targetPath = target.split("#", 1)[0] ?? target;
-      if (!isMarkdown(targetPath)) {
+      const resolved = tryResolveRepoPath(params.repoRoot, dirname(primaryPath), targetPath);
+      if (resolved === undefined) {
         continue;
       }
 
-      const resolved = resolveRepoPath(params.repoRoot, dirname(primaryPath), targetPath);
       const normalizedPath = toRepoPath(relative(params.repoRoot, resolved));
       if (isSecretPath(normalizedPath)) {
         continue;
@@ -196,8 +194,7 @@ function getLinkedMarkdownCandidates(
         continue;
       }
 
-        linkedPaths.add(normalizedPath);
-      }
+      linkedPaths.add(normalizedPath);
     }
   }
 
@@ -211,7 +208,11 @@ function getLinkedMarkdownCandidates(
     });
 }
 
-function getNearbyMarkdownCandidates(primaryPath: string, params: CollectBoundedContextsParams): ContextDocument[] {
+function getNearbyMarkdownCandidates(
+  primaryPath: string,
+  excludedPaths: Set<string>,
+  params: CollectBoundedContextsParams,
+): ContextDocument[] {
   const primaryDirectory = dirname(primaryPath);
   const directories = [primaryDirectory];
 
@@ -222,10 +223,14 @@ function getNearbyMarkdownCandidates(primaryPath: string, params: CollectBounded
 
   for (const directory of directories) {
     for (const filename of ["README.md", "index.md"]) {
-      const path = directory === "." ? filename : join(directory, filename);
+      const path = toRepoPath(directory === "." ? filename : join(directory, filename));
+      if (excludedPaths.has(path)) {
+        continue;
+      }
+
       const content = readExistingGitFile(params.repoRoot, path, params.headRef, params.baseRef);
       if (content !== undefined) {
-        return [{ kind: "nearby-markdown", path: toRepoPath(path), content }];
+        return [{ kind: "nearby-markdown", path, content }];
       }
     }
   }
@@ -239,33 +244,16 @@ function readExistingGitFile(
   preferredRef: string,
   fallbackRef: string,
 ): string | undefined {
-  return readGitFile(repoRoot, preferredRef, path) ?? readGitFile(repoRoot, fallbackRef, path);
+  return readGitTextFile(repoRoot, preferredRef, path) ?? readGitTextFile(repoRoot, fallbackRef, path);
 }
 
-function readGitFile(repoRoot: string, ref: string, path: string): string | undefined {
-  const repoPath = toRepoPath(path);
-  resolveRepoPath(repoRoot, ".", repoPath);
-
-  try {
-    return execFileSync("git", ["show", `${ref}:${repoPath}`], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-function resolveRepoPath(repoRoot: string, basePath: string, targetPath: string): string {
+/** Resolves a link target inside the repository, or returns `undefined` when it escapes `repoRoot`. */
+function tryResolveRepoPath(repoRoot: string, basePath: string, targetPath: string): string | undefined {
   const resolved = resolve(repoRoot, basePath, targetPath);
   const relativePath = relative(repoRoot, resolved);
 
-  if (relativePath.startsWith("..") || relativePath === "") {
-    if (relativePath === "") {
-      return resolved;
-    }
-    throw new Error(`Path resolves outside the repository: ${targetPath}`);
+  if (relativePath.length === 0 || relativePath.startsWith("..")) {
+    return undefined;
   }
 
   return resolved;
@@ -281,32 +269,4 @@ function isExcluded(path: string, config: ScribeConfig): boolean {
 
 function isMarkdown(path: string): boolean {
   return path.toLowerCase().endsWith(".md");
-}
-
-function shouldIgnoreLinkTarget(target: string): boolean {
-  return (
-    target.startsWith("#")
-    || target.startsWith("http://")
-    || target.startsWith("https://")
-    || target.startsWith("mailto:")
-  );
-}
-
-function isSecretPath(path: string): boolean {
-  const normalizedPath = toRepoPath(path).toLowerCase();
-  const fileName = normalizedPath.split("/").at(-1) ?? normalizedPath;
-
-  return (
-    fileName.startsWith(".env")
-    || fileName.endsWith(".key")
-    || fileName.endsWith(".pem")
-    || fileName.endsWith(".p12")
-    || fileName.endsWith(".pfx")
-    || normalizedPath.includes("credential")
-    || normalizedPath.includes("secret")
-  );
-}
-
-function toRepoPath(path: string): string {
-  return normalize(path).replaceAll("\\", "/").replace(/^\.\//, "");
 }

@@ -41,18 +41,25 @@ function countBySeverity(findings: Finding[]): Record<Finding["severity"], numbe
   );
 }
 
+/**
+ * Wraps a value in a CommonMark code span whose fence is longer than any backtick run inside it,
+ * so attacker-influenced text can never escape into Markdown or HTML in the rendered report.
+ */
 function asCode(value: string): string {
-  return "<code>" + escapeCodeContent(value) + "</code>";
+  const text = normalizeLineEndings(value).replaceAll("\n", "\\n");
+  const fence = "`".repeat(longestBacktickRun(text) + 1);
+  const padding = needsPadding(text) ? " " : "";
+
+  return fence + padding + text + padding + fence;
 }
 
-function escapeCodeContent(value: string): string {
-  return normalizeLineEndings(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
-    .replaceAll("\n", "\\n");
+function longestBacktickRun(text: string): number {
+  return [...text.matchAll(/`+/g)].reduce((longest, match) => Math.max(longest, match[0].length), 0);
+}
+
+/** A code span whose content touches a backtick or space at either edge needs literal padding. */
+function needsPadding(text: string): boolean {
+  return /^[` ]/.test(text) || /[` ]$/.test(text);
 }
 
 function normalizeLineEndings(value: string): string {

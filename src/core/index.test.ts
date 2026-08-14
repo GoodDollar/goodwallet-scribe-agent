@@ -8,10 +8,13 @@ describe("core public API", () => {
       "checkLocalLinks",
       "collectBoundedContexts",
       "discoverGitChanges",
+      "extractMarkdownLinks",
       "findingSchema",
       "loadConfig",
       "parseProviderFindingsResponse",
+      "resolveMergeBase",
       "selectPrimaryDocuments",
+      "toLocalLinkPath",
     ]);
   });
 });

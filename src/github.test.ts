@@ -126,6 +126,62 @@ describe("upsertPullRequestComment", () => {
     });
   });
 
+  test("truncates an oversized body below the GitHub comment limit with an explicit notice", async () => {
+    const bodies: string[] = [];
+    const github: PullRequestCommentClient = {
+      rest: {
+        issues: {
+          ...createBaseClient().rest.issues,
+          createComment: ({ body }) => {
+            bodies.push(body);
+            return Promise.resolve({ data: { html_url: "https://example.com/comment/9" } });
+          },
+        },
+      },
+    };
+
+    await upsertPullRequestComment({
+      github,
+      owner: "goodwallet",
+      repo: "scribe",
+      issueNumber: 3,
+      body: "# Report\n" + "finding line\n".repeat(9000),
+    });
+
+    expect(bodies).toHaveLength(1);
+    const body = String(bodies[0]);
+    expect(body.length).toBeLessThanOrEqual(65_536);
+    expect(body.length).toBeGreaterThan(65_000);
+    expect(body).toContain("<!-- goodwallet-scribe-agent -->");
+    expect(body).toContain("# Report");
+    expect(body.endsWith("The report was truncated because it exceeded GitHub's comment size limit.")).toBe(true);
+  });
+
+  test("leaves a body that fits the comment limit untouched", async () => {
+    const bodies: string[] = [];
+    const github: PullRequestCommentClient = {
+      rest: {
+        issues: {
+          ...createBaseClient().rest.issues,
+          createComment: ({ body }) => {
+            bodies.push(body);
+            return Promise.resolve({ data: {} });
+          },
+        },
+      },
+    };
+
+    await upsertPullRequestComment({
+      github,
+      owner: "goodwallet",
+      repo: "scribe",
+      issueNumber: 3,
+      body: "short report",
+    });
+
+    expect(bodies).toEqual(["<!-- goodwallet-scribe-agent -->\nshort report"]);
+  });
+
   test("returns a summary-only fallback on comment permission errors", async () => {
     const github: PullRequestCommentClient = {
       rest: {

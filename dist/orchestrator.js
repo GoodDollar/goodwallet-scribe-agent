@@ -1,23 +1,28 @@
 import { loadConfig } from "./core/config.js";
 import { collectBoundedContexts } from "./core/context.js";
-import { discoverGitChanges, selectPrimaryDocuments } from "./core/git-changes.js";
+import { discoverGitChanges, resolveMergeBase, selectPrimaryDocuments } from "./core/git-changes.js";
 import { readGitTextFile } from "./core/git-text.js";
 import { checkLocalLinks } from "./core/local-links.js";
 import { createCopilotCliProvider } from "./providers/copilot.js";
 export async function runScribeReview(options) {
     const config = loadConfig(options.repoRoot, options.configPath ? { configPath: options.configPath } : {});
     const providerName = options.providerName ?? config.provider;
-    const changes = discoverGitChanges(options.repoRoot, options.baseRef, options.headRef);
+    const mergeBase = resolveMergeBase(options.repoRoot, options.baseRef, options.headRef);
+    const changes = discoverGitChanges(options.repoRoot, mergeBase, options.headRef);
     const primaryDocuments = selectPrimaryDocuments(changes, config);
     const contexts = collectBoundedContexts({
         repoRoot: options.repoRoot,
-        baseRef: options.baseRef,
+        baseRef: mergeBase,
         headRef: options.headRef,
         primaryDocuments,
         allChanges: changes,
         config,
     });
-    const deterministicFindings = checkLocalLinks(options.repoRoot, readPrimaryHeadDocuments(options.repoRoot, options.headRef, primaryDocuments));
+    const deterministicFindings = checkLocalLinks({
+        repoRoot: options.repoRoot,
+        headRef: options.headRef,
+        documents: readPrimaryHeadDocuments(options.repoRoot, options.headRef, primaryDocuments),
+    });
     if (primaryDocuments.length === 0) {
         return {
             config,

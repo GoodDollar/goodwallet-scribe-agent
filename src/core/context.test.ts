@@ -253,24 +253,92 @@ describe("collectBoundedContexts", () => {
     ]);
   });
 
-  test("rejects linked paths that resolve outside the repository", () => {
+  test("skips linked paths that resolve outside the repository without aborting assembly", () => {
     const repoRoot = createTempRepo();
 
-    writeRepoFile(repoRoot, "docs/guide.md", "guide base\n[outside](../../outside.md)\n");
+    writeRepoFile(repoRoot, "specs/spec.md", "spec\n");
+    writeRepoFile(repoRoot, "docs/guide.md", "guide base\n[outside](../../outside.md)\n[spec](../specs/spec.md)\n");
     const baseRef = commitAll(repoRoot, "base");
 
-    writeRepoFile(repoRoot, "docs/guide.md", "guide head\n[outside](../../outside.md)\n");
+    writeRepoFile(repoRoot, "docs/guide.md", "guide head\n[outside](../../outside.md)\n[spec](../specs/spec.md)\n");
     const headRef = commitAll(repoRoot, "head");
 
-    expect(() =>
-      collectBoundedContexts({
-        repoRoot,
-        baseRef,
-        headRef,
-        primaryDocuments: [{ status: "modified", path: "docs/guide.md" }],
-        allChanges: [{ status: "modified", path: "docs/guide.md" }],
-        config: loadConfig(repoRoot),
-      }),
-    ).toThrow(/outside the repository/i);
+    const contexts = collectBoundedContexts({
+      repoRoot,
+      baseRef,
+      headRef,
+      primaryDocuments: [{ status: "modified", path: "docs/guide.md" }],
+      allChanges: [{ status: "modified", path: "docs/guide.md" }],
+      config: loadConfig(repoRoot),
+    });
+
+    expect(contexts[0]?.documents.map((document) => document.path)).toEqual([
+      "docs/guide.md",
+      "docs/guide.md",
+      "specs/spec.md",
+    ]);
+  });
+
+  test("does not return the primary document itself as nearby markdown", () => {
+    const repoRoot = createTempRepo();
+
+    writeRepoFile(repoRoot, "README.md", "root readme\n");
+    writeRepoFile(repoRoot, "docs/README.md", "docs readme base\n");
+    const baseRef = commitAll(repoRoot, "base");
+
+    writeRepoFile(repoRoot, "docs/README.md", "docs readme head\n");
+    const headRef = commitAll(repoRoot, "head");
+
+    const contexts = collectBoundedContexts({
+      repoRoot,
+      baseRef,
+      headRef,
+      primaryDocuments: [{ status: "modified", path: "docs/README.md" }],
+      allChanges: [{ status: "modified", path: "docs/README.md" }],
+      config: loadConfig(repoRoot),
+    });
+
+    expect(contexts[0]?.documents).toEqual([
+      { kind: "primary-base", path: "docs/README.md", content: "docs readme base\n" },
+      { kind: "primary-head", path: "docs/README.md", content: "docs readme head\n" },
+      { kind: "nearby-markdown", path: "README.md", content: "root readme\n" },
+    ]);
+  });
+
+  test("follows titled, bracketed, and percent-encoded links but not fenced ones", () => {
+    const repoRoot = createTempRepo();
+
+    writeRepoFile(repoRoot, "specs/titled.md", "titled\n");
+    writeRepoFile(repoRoot, "specs/with space.md", "spaced\n");
+    writeRepoFile(repoRoot, "specs/encoded ü.md", "encoded\n");
+    writeRepoFile(repoRoot, "specs/fenced.md", "fenced\n");
+    writeRepoFile(repoRoot, "docs/guide.md", "base\n");
+    const baseRef = commitAll(repoRoot, "base");
+
+    writeRepoFile(repoRoot, "docs/guide.md", [
+      '[titled](../specs/titled.md "Spec title")',
+      "[spaced](<../specs/with space.md>)",
+      "[encoded](../specs/encoded%20%C3%BC.md)",
+      "```",
+      "[fenced](../specs/fenced.md)",
+      "```",
+      "",
+    ].join("\n"));
+    const headRef = commitAll(repoRoot, "head");
+
+    const contexts = collectBoundedContexts({
+      repoRoot,
+      baseRef,
+      headRef,
+      primaryDocuments: [{ status: "modified", path: "docs/guide.md" }],
+      allChanges: [{ status: "modified", path: "docs/guide.md" }],
+      config: loadConfig(repoRoot),
+    });
+
+    expect(
+      contexts[0]?.documents
+        .filter((document) => document.kind === "linked-markdown")
+        .map((document) => document.path),
+    ).toEqual(["specs/encoded ü.md", "specs/titled.md", "specs/with space.md"]);
   });
 });

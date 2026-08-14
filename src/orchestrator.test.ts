@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { PrimaryDocumentContext } from "./core/context.js";
 import type { Finding } from "./core/findings.js";
-import { commitAll, createFixtureRepo, createTempRepo, writeRepoFile } from "./core/test-helpers.js";
+import { commitAll, createFixtureRepo, createTempRepo, runGit, writeRepoFile } from "./core/test-helpers.js";
 import { runScribeReview } from "./orchestrator.js";
 
 describe("runScribeReview", () => {
@@ -159,6 +159,35 @@ describe("runScribeReview", () => {
     ]);
     expect(result.primaryDocuments).toHaveLength(1);
     expect(result.contexts).toHaveLength(1);
+  });
+
+  test("reviews only the head side of the merge base when the base branch moved on", async () => {
+    const repoRoot = createTempRepo();
+    writeRepoFile(repoRoot, "docs/guide.md", "guide at fork point\n");
+    writeRepoFile(repoRoot, "docs/base-only.md", "base only\n");
+    commitAll(repoRoot, "fork point");
+
+    runGit(repoRoot, ["checkout", "-b", "feature"]);
+    writeRepoFile(repoRoot, "docs/guide.md", "guide on head\n");
+    const headRef = commitAll(repoRoot, "head");
+
+    runGit(repoRoot, ["checkout", "main"]);
+    writeRepoFile(repoRoot, "docs/base-only.md", "base only changed after the fork\n");
+    writeRepoFile(repoRoot, "docs/guide.md", "guide rewritten on base\n");
+    const baseRef = commitAll(repoRoot, "base moved on");
+
+    const result = await runScribeReview({
+      repoRoot,
+      baseRef,
+      headRef,
+      providers: { copilot: { review: () => Promise.resolve([]) } },
+    });
+
+    expect(result.primaryDocuments).toEqual([{ status: "modified", path: "docs/guide.md" }]);
+    expect(result.contexts[0]?.documents).toEqual([
+      { kind: "primary-base", path: "docs/guide.md", content: "guide at fork point\n" },
+      { kind: "primary-head", path: "docs/guide.md", content: "guide on head\n" },
+    ]);
   });
 
   test("skips the provider when no markdown files changed", async () => {

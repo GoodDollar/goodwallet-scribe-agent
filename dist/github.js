@@ -1,12 +1,14 @@
 import { summary } from "@actions/core";
 const COMMENT_MARKER = "<!-- goodwallet-scribe-agent -->";
 const COMMENTS_PAGE_SIZE = 100;
+const MAX_COMMENT_BODY_LENGTH = 65_536;
+const TRUNCATION_NOTICE = "\n\nThe report was truncated because it exceeded GitHub's comment size limit.";
 export async function writeJobSummary(markdown, writer = summary) {
     writer.addRaw(markdown);
     await writer.write();
 }
 export async function upsertPullRequestComment(params) {
-    const commentBody = `${COMMENT_MARKER}\n${params.body}`;
+    const commentBody = capCommentBody(`${COMMENT_MARKER}\n${params.body}`);
     try {
         const existingComment = await findExistingMarkerComment(params);
         if (existingComment) {
@@ -45,6 +47,16 @@ export async function upsertPullRequestComment(params) {
         }
         throw error;
     }
+}
+/** Keeps the comment within GitHub's body limit, replacing the dropped tail with a visible notice. */
+function capCommentBody(body) {
+    if (body.length <= MAX_COMMENT_BODY_LENGTH) {
+        return body;
+    }
+    const keptLength = MAX_COMMENT_BODY_LENGTH - TRUNCATION_NOTICE.length;
+    const kept = body.slice(0, keptLength);
+    const withoutSplitSurrogate = /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
+    return withoutSplitSurrogate + TRUNCATION_NOTICE;
 }
 async function findExistingMarkerComment(params) {
     for (let page = 1;; page += 1) {
