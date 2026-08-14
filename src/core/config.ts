@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -34,6 +34,10 @@ export interface ScribeConfig {
   };
 }
 
+export interface LoadConfigOptions {
+  configPath?: string;
+}
+
 const DEFAULT_CONFIG: ScribeConfig = {
   include: ["**/*.md"],
   exclude: ["node_modules/**", "dist/**", "vendor/**", "coverage/**", ".git/**"],
@@ -46,8 +50,10 @@ const DEFAULT_CONFIG: ScribeConfig = {
   },
 };
 
-export function loadConfig(repoRoot: string): ScribeConfig {
-  const configPath = join(repoRoot, ".scribe.yml");
+export function loadConfig(repoRoot: string, options: LoadConfigOptions = {}): ScribeConfig {
+  const configPath = options.configPath
+    ? (isAbsolute(options.configPath) ? options.configPath : join(repoRoot, options.configPath))
+    : join(repoRoot, ".scribe.yml");
 
   if (!existsSync(configPath)) {
     return structuredClone(DEFAULT_CONFIG);

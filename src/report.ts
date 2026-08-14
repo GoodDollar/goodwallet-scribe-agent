@@ -1,0 +1,56 @@
+import type { Finding } from "./core/findings.js";
+
+export function renderMarkdownReport(findings: Finding[]): string {
+  const counts = countBySeverity(findings);
+  const lines = [
+    "# Goodwallet Scribe Report",
+    "",
+    "Total findings: " + String(findings.length),
+    "Errors: " + String(counts.error),
+    "Warnings: " + String(counts.warning),
+    "Info: " + String(counts.info),
+  ];
+
+  if (findings.length === 0) {
+    lines.push("", "No advisory findings.");
+    return lines.join("\n");
+  }
+
+  findings.forEach((finding, index) => {
+    lines.push(
+      "",
+      "## " + String(index + 1) + ". " + finding.severity + " " + finding.category,
+      "Location: " + asCode(finding.file + ":" + String(finding.line)),
+      "Evidence: " + asCode(finding.evidence),
+      "Explanation: " + asCode(finding.explanation),
+      "Suggestion: " + asCode(finding.suggestion),
+      "Source: " + asCode(finding.source),
+    );
+  });
+
+  return lines.join("\n");
+}
+
+function countBySeverity(findings: Finding[]): Record<Finding["severity"], number> {
+  return findings.reduce<Record<Finding["severity"], number>>(
+    (counts, finding) => {
+      counts[finding.severity] += 1;
+      return counts;
+    },
+    { info: 0, warning: 0, error: 0 },
+  );
+}
+
+function asCode(value: string): string {
+  return "`" + escapeInline(value) + "`";
+}
+
+function escapeInline(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("`", "\\`")
+    .replaceAll("\r", "")
+    .replaceAll("\n", "\\n");
+}

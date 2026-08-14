@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -59,6 +59,22 @@ describe("loadConfig", () => {
         summary: false,
         comment: true,
       },
+    });
+  });
+
+  test("loads configuration from an explicit path", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "scribe-config-"));
+    const configPath = join(repoRoot, "config", "scribe.yml");
+    mkdirSync(join(repoRoot, "config"), { recursive: true });
+
+    writeFileSync(
+      configPath,
+      ["maxFiles: 7", "provider: copilot", ""].join("\n"),
+    );
+
+    expect(loadConfig(repoRoot, { configPath: "config/scribe.yml" })).toMatchObject({
+      maxFiles: 7,
+      provider: "copilot",
     });
   });
 
