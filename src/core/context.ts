@@ -39,32 +39,53 @@ export interface CollectBoundedContextsParams {
 }
 
 export function collectBoundedContexts(params: CollectBoundedContextsParams): PrimaryDocumentContext[] {
-  return params.primaryDocuments.map((primaryDocument) =>
-    collectPrimaryContext(primaryDocument.path, params),
-  );
+  return params.primaryDocuments.map((primaryDocument) => collectPrimaryContext(primaryDocument, params));
 }
 
-function collectPrimaryContext(primaryPath: string, params: CollectBoundedContextsParams): PrimaryDocumentContext {
-  const documents: ContextDocument[] = [];
-  const baseContent = readGitFile(params.repoRoot, params.baseRef, primaryPath);
+function collectPrimaryContext(primaryDocument: GitChange, params: CollectBoundedContextsParams): PrimaryDocumentContext {
+  const primaryPath = primaryDocument.path;
+  const basePath = primaryDocument.oldPath ?? primaryDocument.path;
+  const baseContent = readGitFile(params.repoRoot, params.baseRef, basePath);
   const headContent = readGitFile(params.repoRoot, params.headRef, primaryPath);
 
-  if (baseContent !== undefined) {
-    documents.push({ kind: "primary-base", path: primaryPath, content: baseContent });
+  let totalFiles = 0;
+  let totalBytes = 0;
+  const selectedPrimaryDocuments: ContextDocument[] = [];
+
+  for (const primaryCandidate of [
+    headContent === undefined ? undefined : { kind: "primary-head" as const, path: primaryPath, content: headContent },
+    baseContent === undefined ? undefined : { kind: "primary-base" as const, path: basePath, content: baseContent },
+  ]) {
+    if (!primaryCandidate) {
+      continue;
+    }
+
+    const nextFiles = totalFiles + 1;
+    const nextBytes = totalBytes + Buffer.byteLength(primaryCandidate.content, "utf8");
+    if (nextFiles > params.config.maxFiles || nextBytes > params.config.maxBytes) {
+      continue;
+    }
+
+    selectedPrimaryDocuments.push(primaryCandidate);
+    totalFiles = nextFiles;
+    totalBytes = nextBytes;
   }
 
-  if (headContent !== undefined) {
-    documents.push({ kind: "primary-head", path: primaryPath, content: headContent });
+  if (selectedPrimaryDocuments.length === 0) {
+    return {
+      primaryPath,
+      documents: [],
+      totalFiles: 0,
+      totalBytes: 0,
+    };
   }
 
-  const seenPaths = new Set([primaryPath]);
-  let supplementalFiles = 0;
-  let supplementalBytes = 0;
-
+  const documents = orderPrimaryDocuments(selectedPrimaryDocuments);
+  const seenPaths = new Set([primaryPath, basePath]);
   const candidates = [
     ...getChangedMarkdownCandidates(primaryPath, params),
     ...getChangedFileCandidates(primaryPath, params),
-    ...getLinkedMarkdownCandidates(primaryPath, headContent ?? baseContent, params),
+    ...getLinkedMarkdownCandidates(primaryPath, [baseContent, headContent], params),
     ...getNearbyMarkdownCandidates(primaryPath, params),
   ];
 
@@ -73,27 +94,44 @@ function collectPrimaryContext(primaryPath: string, params: CollectBoundedContex
       continue;
     }
 
-    if (supplementalFiles >= params.config.maxFiles) {
+    const nextFiles = totalFiles + 1;
+    if (nextFiles > params.config.maxFiles) {
       break;
     }
 
-    const nextBytes = supplementalBytes + Buffer.byteLength(candidate.content, "utf8");
+    const nextBytes = totalBytes + Buffer.byteLength(candidate.content, "utf8");
     if (nextBytes > params.config.maxBytes) {
       continue;
     }
 
     seenPaths.add(candidate.path);
     documents.push(candidate);
-    supplementalFiles += 1;
-    supplementalBytes = nextBytes;
+    totalFiles = nextFiles;
+    totalBytes = nextBytes;
   }
 
   return {
     primaryPath,
     documents,
-    totalFiles: documents.length,
-    totalBytes: documents.reduce((sum, document) => sum + Buffer.byteLength(document.content, "utf8"), 0),
+    totalFiles,
+    totalBytes,
   };
+}
+
+
+function orderPrimaryDocuments(documents: ContextDocument[]): ContextDocument[] {
+  return [...documents].sort((left, right) => primaryDocumentOrder(left.kind) - primaryDocumentOrder(right.kind));
+}
+
+function primaryDocumentOrder(kind: ContextDocumentKind): number {
+  switch (kind) {
+    case "primary-base":
+      return 0;
+    case "primary-head":
+      return 1;
+    default:
+      return 2;
+  }
 }
 
 function getChangedMarkdownCandidates(
@@ -125,16 +163,17 @@ function getChangedFileCandidates(primaryPath: string, params: CollectBoundedCon
 
 function getLinkedMarkdownCandidates(
   primaryPath: string,
-  currentContent: string | undefined,
+  contents: Array<string | undefined>,
   params: CollectBoundedContextsParams,
 ): ContextDocument[] {
-  if (!currentContent) {
-    return [];
-  }
-
   const linkedPaths = new Set<string>();
 
-  for (const line of currentContent.split(/\r?\n/)) {
+  for (const currentContent of contents) {
+    if (!currentContent) {
+      continue;
+    }
+
+    for (const line of currentContent.split(/\r?\n/)) {
     for (const match of line.matchAll(LINK_PATTERN)) {
       const target = match[1]?.trim();
       if (!target || shouldIgnoreLinkTarget(target)) {
@@ -157,7 +196,8 @@ function getLinkedMarkdownCandidates(
         continue;
       }
 
-      linkedPaths.add(normalizedPath);
+        linkedPaths.add(normalizedPath);
+      }
     }
   }
 
