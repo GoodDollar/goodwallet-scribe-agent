@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "coverage",
+    "dist",
+    "node_modules",
+    "src/**/*.test.ts",
+    "src/core/test-helpers.ts"
+  ]
+}
