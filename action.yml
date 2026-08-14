@@ -1,10 +1,9 @@
-name: Goodwallet Scribe
+name: GoodWallet Scribe
 description: Advisory documentation review that reports findings without blocking the pull request.
 inputs:
   provider:
-    description: Review provider to use for advisory output.
+    description: Optional review provider override. When unset, the provider configured in .scribe.yml (default "copilot") is used.
     required: false
-    default: copilot
   config:
     description: Path to the scribe configuration file.
     required: false

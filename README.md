@@ -1,6 +1,6 @@
-# Goodwallet Scribe Agent
+# GoodWallet Scribe Agent
 
-Advisory GitHub Action and CLI that reviews the Markdown a pull request changes, runs deterministic checks plus an LLM-backed provider review, and posts the results as a job summary and/or a sticky PR comment — without ever blocking the PR.
+Advisory GitHub Action and CLI that reviews the Markdown a pull request changes, runs deterministic checks plus an LLM-backed provider review, and posts the results as a job summary and/or a sticky PR comment. Content findings — no matter how severe — never block the PR; only a genuine technical failure (a crashing provider, invalid config, a GitHub API error) can fail the run.
 
 ## Problem and goals
 
@@ -81,6 +81,8 @@ Config is optional — if `.scribe.yml` (or the path given via the `config` inpu
 | `report.comment` | `boolean`  | `true`                                                                 | Upsert the Markdown report as a sticky PR comment.                     |
 
 `maxFiles`/`maxBytes` are budgets **per changed primary document**, not a global cap — see [`docs/architecture.md`](docs/architecture.md) for how that budget is spent.
+
+**Provider precedence:** the `provider` action input and the CLI's `--provider` flag have no built-in default of their own — they're only applied when explicitly set, in which case they override `.scribe.yml` for that run. When neither is set, `config.provider` governs, which itself defaults to `"copilot"` when `.scribe.yml` doesn't set `provider` (or doesn't exist at all). In short: **explicit `--provider`/`provider` input > `.scribe.yml`'s `provider` > built-in default `"copilot"`.** This means a workflow that omits the `provider` input entirely (like the live demo) resolves through `.scribe.yml`, not through a hardcoded Action default.
 
 Example:
 
@@ -172,7 +174,7 @@ export interface Provider {
 
 (`src/providers/index.ts`) One provider is invoked **once per run**, with every primary document's context passed together in a single `contexts` array — not once per file.
 
-**Current provider: Copilot CLI only.** `createCopilotCliProvider` (`src/providers/copilot.ts`) is the sole real implementation, resolved when `config.provider` (or `--provider`) is `"copilot"`. It:
+**Current provider: Copilot CLI only.** `createCopilotCliProvider` (`src/providers/copilot.ts`) is the sole real implementation, resolved when the effective provider name (see "Provider precedence" above) is `"copilot"`. It:
 
 1. Serializes `contexts` into a prompt that frames the content as untrusted data (see [`docs/security.md`](docs/security.md)) and states the exact response contract (one JSON object, `{ findings: [...] }`, one key per finding, `source` must be `"agent"`).
 2. Spawns `copilot -s --no-ask-user -p "<prompt>"` as a child process, inheriting `process.env`.
@@ -197,7 +199,7 @@ The action itself needs:
 - `contents: read` — to check out the repo and run `git diff`/`git show` (the CLI needs equivalent local git access).
 - `pull-requests: write` — for the `github-token` input (Octokit) to read/create/update the sticky PR comment. Without it, comments are skipped in favor of the job summary (see below).
 
-The live demo workflow also grants `copilot-requests: write`, since the Copilot CLI subprocess authenticates its own model requests using the job's `GITHUB_TOKEN` environment variable — a separate concern from the action's own `github-token` input, which is only used for the Octokit PR-comment/summary calls.
+The live demo workflow also grants `copilot-requests: write`, since the Copilot CLI subprocess authenticates its own model requests using the job's `GITHUB_TOKEN` environment variable — a separate concern from the action's own `github-token` input, which is used only for the Octokit PR-comment list/create/update calls. The job summary needs no token at all: it's written through `@actions/core`'s `summary` object straight to the runner's `GITHUB_STEP_SUMMARY` file.
 
 ## Fork comment fallback
 
@@ -214,6 +216,7 @@ The live demo workflow also grants `copilot-requests: write`, since the Copilot 
 
 - Only one real provider exists (Copilot CLI); it requires the `copilot` binary to be pre-installed and authenticated in the job — the action does not install or authenticate it.
 - Deterministic checks cover local relative link existence only; there's no anchor validation, no external URL checks, and no check across renamed/moved link targets beyond what git rename detection already resolves.
+- `checkLocalLinks` reads a primary document's own content from the git object at `headRef` (via `git show`), but validates that a link's *target* exists with `existsSync` against the real working tree on disk — not another `git show` at `headRef`. This assumes the checked-out working tree matches `headRef`, which holds for the Action's typical `actions/checkout` of the PR head, but is not guaranteed for the CLI when `--head` names a ref that isn't currently checked out; in that case link-existence results reflect whatever happens to be on disk, not the actual tree at `headRef`.
 - Provider technical failures (e.g. Copilot CLI unreachable) fail the whole run via `core.setFailed`, even though findings themselves are advisory — an infrastructure problem with the provider is not distinguished from a code bug in the run today.
 - The sticky comment is matched by an HTML comment marker (`<!-- goodwallet-scribe-agent -->`); if that comment is deleted or edited to remove the marker, the next run creates a new comment instead of finding it.
 - Secret exclusion from context is filename-based, not content-based (see [`docs/security.md`](docs/security.md)).

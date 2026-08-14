@@ -24,7 +24,7 @@ src/
     copilot.ts            The only real Provider: shells out to the `copilot` CLI.
 ```
 
-`src/core/index.ts` re-exports the core module's public surface; nothing outside `core/` reaches into a `core/*` file directly except through that barrel or `orchestrator.ts`.
+`src/core/index.ts` is a convenience re-export of core's public surface (`loadConfig`, `collectBoundedContexts`, `findingSchema`, `parseProviderFindingsResponse`, `discoverGitChanges`, `selectPrimaryDocuments`, `checkLocalLinks`); it is not an enforced import boundary. Nothing in `src/` actually imports through it — `orchestrator.ts` imports each `core/*` module directly (`./core/config.js`, `./core/context.js`, `./core/git-changes.js`, `./core/git-text.js`, `./core/local-links.js`), and both `report.ts` and `providers/*.ts` import `core/findings.js` directly. The barrel exists for external/library-style consumption of this package, not to gate internal access.
 
 ## Data flow
 
